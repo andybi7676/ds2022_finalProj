@@ -56,7 +56,7 @@ class Feature():
     
     def __mul__(self, other):
         res_npy = (self.feature_npy == other.feature_npy) * (self.feature_npy != -1)
-        return sum(res_npy) # maybe we can divide with self.size?
+        return sum(res_npy) / self.size # maybe we can divide with self.size?
     
     def __repr__(self):
         return f"{self.feature_npy}"

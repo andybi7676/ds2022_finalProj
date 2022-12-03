@@ -3,6 +3,7 @@ import math
 import pickle as pkl
 import os.path as osp
 import numpy as np
+import matplotlib.pyplot as plt
 from collections import defaultdict
 from tqdm import tqdm
 from feature import *
@@ -18,12 +19,15 @@ class Egonet():
     @classmethod
     def _init_value(cls):
         return 0.0
+    
+    def _normalize_npy(cls, np_ary):
+        return (np_ary - np_ary.min()) / (np_ary.max() - np_ary.min())
 
-    def __init__(self, egonet_fpath: str, alpha=0.3, sigma=0.25, d_c=0.1):
+    def __init__(self, egonet_fpath: str, alpha=0.3, sigma=0.25, d_c=0.0):
         assert self.users != None, f"please register users first!"
-        self.alpha = 0.3
-        self.sigma = 0.25
-        self.d_c = 0.1
+        self.alpha = alpha
+        self.sigma = sigma
+        self.d_c = d_c
         self.egonet_user_ids = []
         with open(egonet_fpath, 'r') as er:
             lines = er.readlines()
@@ -67,13 +71,20 @@ class Egonet():
     
     def calculate_distance(self):
         self.D = {}
+        sims = []
         for id_i, id_v in self.valid_iv_pairs:
             user_i = self.users[id_i]
             user_v = self.users[id_v]
             simP = self.simP(user_i, user_v)
             simN = self.simN(user_i, user_v)
-            dis_i_v = 1 / max((self.alpha*simP + (1-self.alpha)*simN), 1e-5)
-            self.D[(id_i, id_v)] = dis_i_v
+            # self.D[(id_i, id_v)] = 1 / (self.alpha*simP + (1-self.alpha)*simN + 1e-3) # original
+            sims.append(self.alpha*simP + (1-self.alpha)*simN)
+        sims = np.array(sims)
+        sims = self._normalize_npy(sims) # normalize sim
+        diss = (1 - sims**2)**0.5        # concept: from cos(theta) to sin(theta)
+        print(f"diss max = {diss.max()}, min={diss.min()}")
+        for (id_i, id_v), dis in zip(self.valid_iv_pairs, diss):
+            self.D[(id_i, id_v)] = dis
     
     def calculate_local_density(self):
         # store local density in 'user' also
@@ -82,28 +93,47 @@ class Egonet():
         def normalize(dis_i_v):
             reg_dis = abs(dis_i_v - self.d_c)
             return - reg_dis / denominator
-        
+        raw_rho = defaultdict(self._init_value)
         for id_i, id_v in self.valid_iv_pairs:
             add_val = math.exp(normalize(self.get_distance(id_i, id_v)))
-            self.Rho[id_i] += add_val
-        for id_i in self.egonet_user_ids:
-            self.users[id_i].local_density = self.Rho[id_i] # Might be redundant
+            raw_rho[id_i] += add_val
+        self.user_rhos_npy = np.array([raw_rho[user_id] for user_id in self.egonet_user_ids])
+        self.user_rhos_npy = self._normalize_npy(self.user_rhos_npy)
+        for id_i, rho in zip(self.egonet_user_ids, self.user_rhos_npy):
+            self.Rho[id_i] = rho
+            self.users[id_i].local_density = rho # Might be redundant
     
     def calculate_delta_distance(self):
         self.delta = defaultdict(self._init_value)
-        user_ids_npy = np.array(self.egonet_user_ids)
-        user_rhos_npy = np.array([self.Rho[user_id] for user_id in self.egonet_user_ids])
-        max_user_id = user_ids_npy[np.argmax(user_rhos_npy)]
-        for id_i, rho_i in zip(user_ids_npy, user_rhos_npy):
+        self.user_ids_npy = np.array(self.egonet_user_ids)
+        max_user_id = self.user_ids_npy[np.argmax(self.user_rhos_npy)]
+        for id_i, rho_i in zip(self.user_ids_npy, self.user_rhos_npy):
             if id_i == max_user_id:
-                v_filter = user_ids_npy != id_i
+                v_filter = self.user_ids_npy != id_i
                 metric = "max"
             else:
-                v_filter = user_rhos_npy > rho_i # implicitly filter out id_i
+                v_filter = (self.user_rhos_npy >= rho_i) & (self.user_ids_npy != id_i) # implicitly filter out id_i
                 metric = "min"
-            v_candidates = user_ids_npy[v_filter]
+            v_candidates = self.user_ids_npy[v_filter]
             self.delta[id_i] = eval(metric)([self.get_distance(id_i, id_v) for id_v in v_candidates])
+        self.user_deltas_npy = np.array([self.delta[user_id] for user_id in self.egonet_user_ids])
     
+    def visualize(self):
+        fig, ax = plt.subplots()
+        print(self.user_rhos_npy.max(), self.user_deltas_npy.max())
+        rhos_std = self.user_rhos_npy.std()
+        deltas_std = self.user_deltas_npy.std()
+        print(rhos_std, deltas_std)
+        ax.scatter(self.user_rhos_npy, self.user_deltas_npy)
+        for user_id, rho, delta in zip(self.user_ids_npy, self.user_rhos_npy, self.user_deltas_npy):
+            ax.annotate(user_id, (rho, delta))
+        fig.savefig("./tmp.png")
+    
+    # def define_centers(self):
+    #     return 
+    
+    # def initialize_clusters(self):
+        
 
 if __name__ == "__main__":
     featurelist_fp = '/home/andybi7676/Desktop/ds2022_finalProj/featureList.txt'
@@ -112,9 +142,11 @@ if __name__ == "__main__":
     
     users = Users(feature_fp, featurelist_fp) 
     Egonet.register_users(users)
-    ego_0_fpath = '/home/andybi7676/Desktop/ds2022_finalProj/egonets/0.egonet'
-    ego_0 = Egonet(ego_0_fpath)  
-    print(ego_0.Rho)
-    print(ego_0.delta) 
+    ego_fpath = '/home/andybi7676/Desktop/ds2022_finalProj/egonets/345.egonet'
+    ego = Egonet(ego_fpath) 
+    ego.visualize()
+     
+    # print(ego_0.Rho)
+    # print(ego_0.delta) 
 
     
