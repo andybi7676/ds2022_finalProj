@@ -8,12 +8,16 @@ from tqdm import tqdm
 class FeatureList():
     def __init__(self, featurelist_fp: str):
         self.feature_list = []
-        self.feature_to_idx_dict = defaultdict(lambda: -1) # assign -1 as unknown idx 
+        self.feature_to_idx_dict = defaultdict(self._doesnot_exists) # assign -1 as unknown idx 
         with open(featurelist_fp, 'r') as fr:
             for idx, line in enumerate(fr):
                 feature_repr = line.strip('\r\n ')
                 self.feature_list.append(feature_repr)
                 self.feature_to_idx_dict[feature_repr] = idx
+    
+    @classmethod
+    def _doesnot_exists(self):
+        return -1
     
     def __len__(self):
         return len(self.feature_list)
@@ -42,17 +46,17 @@ class Feature():
     def __init__(self, user_features: str):
         assert self.featurelist != None, f"invalid featurelist, register it first!"
         self.size = len(self.featurelist)
-        self.feature = np.full(self.size, -1) 
+        self.feature_npy = np.full(self.size, -1) 
         for feature in user_features:
             contents = feature.split(';')
             feature_repr = ';'.join(contents[:-1])
             feature_value = int(contents[-1])
             feature_idx = self.featurelist(feature_repr)
-            self.feature[feature_idx] = feature_value
+            self.feature_npy[feature_idx] = feature_value
     
     def __mul__(self, other):
-        res_npy = (self.feature == other.feature) * (self.feature != -1)
+        res_npy = (self.feature_npy == other.feature_npy) * (self.feature_npy != -1)
         return sum(res_npy) # maybe we can divide with self.size?
     
     def __repr__(self):
-        return f"{self.feature}"
+        return f"{self.feature_npy}"
