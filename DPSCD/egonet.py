@@ -30,6 +30,7 @@ class Egonet():
         self.d_c = d_c
         self.egonet_user_ids = []
         with open(egonet_fpath, 'r') as er:
+            self.owner = int(ego_fpath.split('/')[-1].split('.')[0])
             lines = er.readlines()
             for line in tqdm(lines):
                 contents = line.strip('\r\n ').split(':')
@@ -129,11 +130,65 @@ class Egonet():
             ax.annotate(user_id, (rho, delta))
         fig.savefig("./tmp.png")
     
-    # def define_centers(self):
-    #     return 
+    def determine_centers(self, top_k=False):
+        threshold = 0.98
+        rhos_deltas_combination = self.user_rhos_npy + self.user_deltas_npy
+        center_filter = (rhos_deltas_combination > threshold)
+        center_user_ids_npy = self.user_ids_npy[center_filter]
+        # sort by local density:
+        self.center_user_ids_rhos = [(user_id, self.Rho[user_id]) for user_id in center_user_ids_npy]
+        self.center_user_ids_rhos.sort(key=lambda x: x[1])
+        self.center_user_ids = []
+        for user_id in center_user_ids_npy:
+            self.center_user_ids.append(user_id)
+            self.users[user_id].is_center = True
+
+    def assign_circles(self):
+        self.circles = defaultdict(lambda: None)
+        for center_user_id, _ in self.center_user_ids_rhos:
+            self.circles[center_user_id] = set()
+        for user_id in self.user_ids_npy:
+            if self.users[user_id].is_center: continue
+            min_dist = 1.0
+            min_dist_center_id = None
+            for center_user_id in self.center_user_ids:
+                cur_dist = self.get_distance(user_id, center_user_id)
+                if cur_dist <= min_dist:
+                    min_dist = cur_dist
+                    min_dist_center_id = center_user_id
+            self.users[min_dist_center_id].circle[user_id] = min_dist
     
-    # def initialize_clusters(self):
-        
+    def integrate_circles(self):
+        if len(self.center_user_ids_rhos) < 2: return
+        cur_nxt_center_pairs = [(self.center_user_ids[j], self.center_user_ids[j+1]) for j in range(len(self.center_user_ids)-1)]
+        for cur_center_id, nxt_center_id in cur_nxt_center_pairs:
+            cur_center_user = self.users[cur_center_id]
+            cur_circle_user_ids = cur_center_user.get_circle_list()
+            nxt_center_user = self.users[nxt_center_id]
+            if len(nxt_center_user.get_circle_list()) == 0: continue
+            for user_id in cur_circle_user_ids:
+                cur_dist = self.get_distance(user_id, nxt_center_id)
+                if cur_dist < nxt_center_user.get_circle_distsmax():
+                    nxt_center_user.circle[user_id] = cur_dist
+    
+    def get_circles(self):
+        self.determine_centers()
+        print(self.center_user_ids_rhos)
+        self.assign_circles()
+        self.integrate_circles()
+        self.circles = {}
+        for center_user_id in self.center_user_ids:
+            center_user = self.users[center_user_id]
+            self.circles[center_user_id] = center_user.get_circle_list()
+        print(self.circles)
+    
+    def get_answers(self):
+        circle_reprs = []
+        for circle_owner_id, circle_user_ids in self.circles.items():
+            circle_repr = " ".join([str(circle_owner_id)] + [str(user_id) for user_id in circle_user_ids])
+            circle_reprs.append(circle_repr)
+        self.answer = f"{self.owner}," + ";".join(circle_reprs)
+        return self.answer
 
 if __name__ == "__main__":
     featurelist_fp = '/home/andybi7676/Desktop/ds2022_finalProj/featureList.txt'
@@ -142,9 +197,11 @@ if __name__ == "__main__":
     
     users = Users(feature_fp, featurelist_fp) 
     Egonet.register_users(users)
-    ego_fpath = '/home/andybi7676/Desktop/ds2022_finalProj/egonets/345.egonet'
+    ego_fpath = '/home/andybi7676/Desktop/ds2022_finalProj/egonets/239.egonet'
     ego = Egonet(ego_fpath) 
     ego.visualize()
+    ego.get_circles()
+    print(ego.get_answers())
      
     # print(ego_0.Rho)
     # print(ego_0.delta) 

@@ -59,6 +59,9 @@ class User():
         self.neighbors = set()
         self.stabilized = False
         self.local_density = 0.0
+        self.is_center = False
+        self.circle = defaultdict(self._doesnot_exists)
+        self.circle_distmax = None
     
     def __repr__(self):
         repr_str = "" 
@@ -74,6 +77,20 @@ class User():
         self.neighbors = set(neighbor_list)
         self.stabilized = True
     
+    def get_circle_list(self):
+        assert self.is_center, f"User {self.id} is not center"
+        return [user_id for user_id, _ in self.circle.items()]
+    
+    def get_circle_dists(self):
+        if len(self.get_circle_list()) == 0: return []
+        dists = [dist for _, dist in self.circle.items()]
+        return dists
+    
+    def get_circle_distsmax(self):
+        if self.circle_distmax == None:
+            self.circle_distmax = max(self.get_circle_dists())
+        return self.circle_distmax
+            
     def __len__(self):
         assert self.stabilized, f"User id={self.id} are not stabilized yet."
         return len(self.neighbors)
