@@ -62,6 +62,7 @@ class User():
         self.is_center = False
         self.circle = defaultdict(self._doesnot_exists)
         self.circle_distmax = None
+        self.children = []
     
     def __repr__(self):
         repr_str = "" 
@@ -71,6 +72,16 @@ class User():
     
     def add_neighbor_to_dict(self, neighbor):
         self.neighbors_dict[neighbor.id] = True
+    
+    def add_child(self, child):
+        self.children.append(child)
+    
+    def get_descendants_ids(self):
+        all_of_spring = []
+        for child in self.children:
+            all_of_spring += ([child.id] + child.get_descendants_ids())
+        return all_of_spring
+    
 
     def stabilize(self): # once an egonetwork has settled down, call this function to stabilize the user's neighbors
         neighbor_list = [nb_id for nb_id, _ in self.neighbors_dict.items()]
